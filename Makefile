@@ -6,6 +6,7 @@ help:
 	@echo "  testnet_debug        - Start a local testnet in debug mode"
 	@echo "  testnet_restart      - Restart the testnet"
 	@echo "  testnet_load_test    - Start testnet with transaction load testing and auto-exit"
+	@echo "  testnet_follower_test - Start testnet and add follower nodes at blocks 5 and 15, exit at block 30"
 	@echo "  genesis              - Generate a genesis file"
 	@echo "  node-gen             - Generate node enodes and secret keys in CSV format"
 	@echo "  node-help            - Show help for the rbft-node binary"
@@ -67,6 +68,9 @@ help:
 	@echo "    RBFT_EXIT_AFTER_BLOCK=<block>            - Exit testnet after reaching this block height"
 	@echo "    RBFT_ADD_AT_BLOCKS=<blocks>              - Comma-separated list of block heights to add"
 	@echo "                                               validators at (e.g., '10,20,30')"
+	@echo "    RBFT_ADD_FOLLOWER_AT=<blocks>             - Comma-separated list of block heights to add"
+	@echo "                                               follower (non-validator) nodes at (e.g., '5,15')"
+	@echo "                                               Uses key slots from nodes.csv starting at index num_nodes"
 	@echo ""
 	@echo "  Examples:"
 	@echo "    RBFT_NUM_NODES=7 make genesis"
@@ -151,13 +155,23 @@ testnet_debug:
 	RUST_LOG=debug $(MAKE) CARGO_PROFILE=debug testnet_start
 
 
-# Note this is controllable by environment variables.
-# RBFT_NUM_NODES=10 make testnet_load_test
-# RBFT_BLOCK_INTERVAL=0.1 make testnet_load_test
-# RBFT_BASE_FEE=1000000000000 make testnet_load_test
-# see target/release/rbft-utils genesis --help for details.
-# Avoid setting log-level here as it is possible to set it before running make.
-# RUST_LOG=debug make testnet_load_test
+# Test follower node support: starts a 4-validator testnet, adds 2 non-validator follower
+# nodes at blocks 5 and 15 via RBFT_ADD_FOLLOWER_AT, then exits at block 30.
+# node-gen is given RBFT_NUM_NODES + 2 slots so nodes.csv has keys for the followers.
+testnet_follower_test:
+	mkdir -p $(ASSETS_DIR)
+	$(CARGO) build --release --bin rbft-node
+	$(CARGO) build --release --bin rbft-utils
+	target/release/rbft-utils node-gen --assets-dir $(ASSETS_DIR) \
+		--num-nodes $$(( $${RBFT_NUM_NODES:-4} + 2 ))
+	target/release/rbft-utils genesis --assets-dir $(ASSETS_DIR) \
+		--initial-nodes $${RBFT_NUM_NODES:-4}
+	RBFT_ADD_FOLLOWER_AT=5,15 RBFT_EXIT_AFTER_BLOCK=30 \
+	target/release/rbft-utils testnet --init \
+		--assets-dir $(ASSETS_DIR)
+	target/release/rbft-utils logjam -q
+
+# Test transaction load handling: starts a 4-validator testnet with megatx enabled, which submits large transactions every block.
 testnet_load_test:
 	mkdir -p $(ASSETS_DIR)
 	$(CARGO) build --release --bin rbft-node
@@ -317,4 +331,4 @@ docker-tag-registry:
 .PHONY: help docker-validate docker-build docker-build-dev docker-build-debug docker-run \
 	docker-run-dev docker-test docker-clean test fmt clippy clean docker-tag-registry \
 	dafny-translate validator_status status testnet_start testnet_restart genesis node-help \
-	megatx validator-inspector testnet_load_test testnet_debug
+	megatx validator-inspector testnet_load_test testnet_follower_test testnet_debug

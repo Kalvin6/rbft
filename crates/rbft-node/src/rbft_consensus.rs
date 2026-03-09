@@ -2618,10 +2618,34 @@ async fn attempt_peer_reconnection(
 fn get_private_key_and_id(
     args: &RbftNodeArgs,
 ) -> eyre::Result<(alloy_primitives::B256, alloy_primitives::Address)> {
-    let key = args
-        .validator_key
-        .as_ref()
-        .ok_or_else(|| eyre!("Validator key is required for QBFT nodes"))?;
+    // If no validator key file is provided, generate an ephemeral random key.
+    // The node's address will not appear in the on-chain validator set, so the QBFT
+    // state machine will treat it as a follower (non-validator): it will only run
+    // `upon_new_block` and never propose, prepare, commit, or trigger round changes.
+    let Some(key) = args.validator_key.as_ref() else {
+        let mut key_bytes = [0u8; 32];
+        {
+            use std::io::Read;
+            let mut urandom = std::fs::File::open("/dev/urandom")
+                .map_err(|e| eyre!("Cannot open /dev/urandom for ephemeral follower key: {e}"))?;
+            urandom
+                .read_exact(&mut key_bytes)
+                .map_err(|e| eyre!("Cannot read from /dev/urandom: {e}"))?;
+        }
+        // Ensure the key is non-zero (truly random bytes are astronomically unlikely
+        // to be all-zero, but guard against it anyway).
+        key_bytes[0] |= 1;
+        let private_key = B256::from(key_bytes);
+        let signer = PrivateKeySigner::from_bytes(&private_key)
+            .map_err(|e| eyre!("Failed to create ephemeral follower signer: {e}"))?;
+        let id = signer.address();
+        info!(
+            target: "rbft",
+            "No --validator-key provided; running as follower node with ephemeral address {id}"
+        );
+        return Ok((private_key, id));
+    };
+
     let key_data = std::fs::read_to_string(key)
         .map_err(|e| eyre!("Failed to read validator key file {key:?}: {e}"))?;
     let key_data = key_data.trim();

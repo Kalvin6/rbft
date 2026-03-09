@@ -135,6 +135,13 @@ enum RbftCommands {
         #[arg(long, env = "RBFT_ADD_AT_BLOCKS")]
         add_at_blocks: Option<String>,
 
+        /// Comma-separated list of block heights at which to add follower nodes (e.g., "10,20").
+        /// Each trigger spawns one new node process whose key is NOT registered in the on-chain
+        /// validator contract, so the node observes consensus without participating in it.
+        /// Key files are taken from nodes.csv starting at index num_nodes.
+        #[arg(long, env = "RBFT_ADD_FOLLOWER_AT")]
+        add_followers_at: Option<String>,
+
         /// Number of initial validators (for tracking which validator to add next).
         /// Defaults to num_nodes if not specified.
         #[arg(long, env = "RBFT_INITIAL_NODES")]
@@ -376,6 +383,7 @@ fn main() -> eyre::Result<()> {
             run_megatx,
             exit_after_block,
             add_at_blocks,
+            add_followers_at,
             initial_nodes,
             docker,
             kube,
@@ -411,6 +419,7 @@ fn main() -> eyre::Result<()> {
                 run_megatx,
                 exit_after_block,
                 add_at_blocks.as_deref(),
+                add_followers_at.as_deref(),
                 initial_nodes,
                 docker,
                 kube,

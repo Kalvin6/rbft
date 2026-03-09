@@ -36,7 +36,12 @@ use metrics::QbftMetrics;
 ///   RBFT_TRUSTED_PEERS_REFRESH_SECS  Peer refresh interval (default: 10)
 #[derive(Debug, Parser, Clone)]
 pub struct RbftNodeArgs {
-    /// Path to the validator private key file
+    /// Path to the validator private key file.
+    ///
+    /// If omitted, an ephemeral random key is generated at startup. The derived address will
+    /// not be present in the on-chain validator set, so the node operates as a follower:
+    /// it syncs blocks via `NewBlock` messages but never proposes, prepares, commits, or
+    /// triggers round changes.
     #[arg(long)]
     pub validator_key: Option<String>,
 
