@@ -142,12 +142,22 @@ target/release/rbft-node node \
 
 **3. Register the validator in the contract**
 
-The default testnet admin key is `0x000...0001`
-(address `0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf`):
+The admin key is taken from the `RBFT_ADMIN_KEY` environment variable, which must match
+the key used when the genesis was generated. For a fresh local testnet started without
+setting `RBFT_ADMIN_KEY`, the default is `0x000...0001`:
 
 ```bash
 target/release/rbft-utils validator add \
-  --admin-key 0x0000000000000000000000000000000000000000000000000000000000000001 \
+  --validator-address 0xABCD... \
+  --enode "$ENODE" \
+  --rpc-url http://localhost:8545
+```
+
+If `RBFT_ADMIN_KEY` is not set, pass it explicitly:
+
+```bash
+target/release/rbft-utils validator add \
+  --admin-key <ADMIN_PRIVATE_KEY> \
   --validator-address 0xABCD... \
   --enode "$ENODE" \
   --rpc-url http://localhost:8545
