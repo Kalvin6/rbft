@@ -95,6 +95,66 @@ Key flags:
 - `--validator-key` is intentionally **omitted** — its absence is what makes this a
   follower
 
+### Adding a Validator Node
+
+To add a new validator to a running testnet you need a validator key (for signing QBFT
+messages), a P2P secret key (for RLPx networking), and the enode URL derived from it.
+
+**1. Generate keys**
+
+```bash
+target/release/rbft-utils validator keygen --ip <YOUR_IP> --port 30305
+```
+
+This prints JSON with all four values:
+
+```json
+{
+  "validator_address":     "0xABCD...",
+  "validator_private_key": "0x1234...",
+  "p2p_secret_key":        "abcd...",
+  "enode":                 "enode://<pubkey>@<YOUR_IP>:30305"
+}
+```
+
+Save the keys and capture the enode:
+
+```bash
+echo "0x1234..." > validator-key-new.txt
+echo "abcd..."   > p2p-secret-key-new.txt
+ENODE="enode://<pubkey>@<YOUR_IP>:30305"
+```
+
+**2. Start the node**
+
+```bash
+target/release/rbft-node node \
+  --chain ~/.rbft/testnet/assets/genesis.json \
+  --datadir /tmp/rbft-new-validator \
+  --port 30305 \
+  --authrpc.port 8652 \
+  --http --http.port 8601 \
+  --disable-discovery \
+  --p2p-secret-key p2p-secret-key-new.txt \
+  --validator-key validator-key-new.txt \
+  --trusted-peers "$ENODES"   # enodes of existing validators
+```
+
+**3. Register the validator in the contract**
+
+The default testnet admin key is `0x000...0001`
+(address `0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf`):
+
+```bash
+target/release/rbft-utils validator add \
+  --admin-key 0x0000000000000000000000000000000000000000000000000000000000000001 \
+  --validator-address 0xABCD... \
+  --enode "$ENODE" \
+  --rpc-url http://localhost:8545
+```
+
+The new validator becomes active at the next epoch boundary.
+
 ### Installing Cast (Foundry)
 
 Cast is a useful tool for interacting with the blockchain:

@@ -327,6 +327,20 @@ enum ValidatorCommand {
         #[arg(long, default_value = "http://localhost:8545")]
         rpc_url: String,
     },
+    /// Generate a fresh validator key-pair and P2P secret key, print as JSON.
+    ///
+    /// The JSON output contains everything needed to start a new validator node
+    /// and register it with `validator add`:
+    ///   validator_address, validator_private_key, p2p_secret_key, enode
+    Keygen {
+        /// IP address to embed in the enode URL
+        #[arg(long, default_value = "127.0.0.1")]
+        ip: String,
+
+        /// P2P port to embed in the enode URL
+        #[arg(long, default_value_t = 30303)]
+        port: u16,
+    },
 }
 
 fn main() -> eyre::Result<()> {
@@ -521,6 +535,9 @@ fn main() -> eyre::Result<()> {
                         value,
                         rpc_url,
                     } => validator_management::set_epoch_length(&admin_key, value, &rpc_url).await,
+                    ValidatorCommand::Keygen { ip, port } => {
+                        validator_management::keygen_validator(&ip, port)
+                    }
                 }
             })
         }
