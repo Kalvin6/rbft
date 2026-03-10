@@ -77,8 +77,8 @@ pub struct NodeState {
 
     /// Added for practical implementation, not in the Dafny spec.
     /// This is used to sign messages sent by this node.
-    /// TODO: followers do not have a private key. This should be an Option.
-    private_key: PrivateKey,
+    /// `None` for follower nodes that do not participate in consensus.
+    private_key: Option<PrivateKey>,
 
     /// The first message at or above the current height.
     first_future_message: usize,
@@ -92,7 +92,7 @@ impl NodeState {
         blockchain: Blockchain,
         configuration: Configuration,
         id: Address,
-        private_key: PrivateKey,
+        private_key: Option<PrivateKey>,
         local_time: u64,
     ) -> Self {
         let block_time = configuration.block_time;
@@ -306,7 +306,7 @@ impl NodeState {
 
     /// Return the role of this node.
     fn role(&self) -> char {
-        let role = if self.private_key().is_zero() {
+        let role = if self.private_key().is_none() {
             // Follower node - no private key.
             'f'
         } else if self.is_the_proposer_for_current_round() {
@@ -467,7 +467,7 @@ impl NodeState {
         self.round_zero_last_progress_time
     }
 
-    pub fn private_key(&self) -> FixedBytes<32> {
+    pub fn private_key(&self) -> Option<FixedBytes<32>> {
         self.private_key
     }
 
@@ -650,7 +650,7 @@ mod tests {
             blockchain,
             configuration,
             validators[0],
-            PrivateKey::default(),
+            Some(PrivateKey::default()),
             0,
         )
     }

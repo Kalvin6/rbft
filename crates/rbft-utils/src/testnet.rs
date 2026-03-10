@@ -280,6 +280,7 @@ fn start_new_validator(
     logs_dir_path: &Path,
     extra_args: Option<&[String]>,
     docker: bool,
+    is_follower: bool,
 ) -> (Child, String) {
     let db_path = data_dir_path.join(format!("d{}", index));
     fs::create_dir_all(&db_path).expect("failed to create node datadir");
@@ -377,8 +378,10 @@ fn start_new_validator(
         cmd.push("/data/reth-config.toml".to_string());
         cmd.push("--p2p-secret-key".to_string());
         cmd.push(format!("/assets/p2p-secret-key{}.txt", index));
-        cmd.push("--validator-key".to_string());
-        cmd.push(format!("/assets/validator-key{}.txt", index));
+        if !is_follower {
+            cmd.push("--validator-key".to_string());
+            cmd.push(format!("/assets/validator-key{}.txt", index));
+        }
         if num_nodes != 1 && !trusted_peers.is_empty() {
             cmd.push("--trusted-peers".to_string());
             cmd.push(trusted_peers.to_string());
@@ -436,12 +439,14 @@ fn start_new_validator(
                 .to_str()
                 .expect("failed to convert p2p key path to string")
         ));
-        cmd.push(format!(
-            "--validator-key {}",
-            validator_key
-                .to_str()
-                .expect("failed to convert validator key path to string")
-        ));
+        if !is_follower {
+            cmd.push(format!(
+                "--validator-key {}",
+                validator_key
+                    .to_str()
+                    .expect("failed to convert validator key path to string")
+            ));
+        }
         if num_nodes != 1 && !trusted_peers.is_empty() {
             cmd.push(format!("--trusted-peers {trusted_peers}"));
         }
@@ -723,6 +728,7 @@ pub async fn testnet(
                 &logs_dir_path,
                 extra_args,
                 docker,
+                false,
             );
             nodes.push(node);
             urls.push(url);
@@ -1278,13 +1284,11 @@ fn add_next_follower(
     extra_args: Option<&[String]>,
     docker: bool,
 ) -> eyre::Result<(Child, String)> {
-    let validator_key_path = assets.join(format!("validator-key{follower_node_index}.txt"));
     let p2p_key_path = assets.join(format!("p2p-secret-key{follower_node_index}.txt"));
-    if !validator_key_path.exists() || !p2p_key_path.exists() {
+    if !p2p_key_path.exists() {
         return Err(eyre::eyre!(
-            "Missing key files for follower node index {follower_node_index}: expected {} and {} \
+            "Missing p2p key file for follower node index {follower_node_index}: expected {} \
              in {}. Re-generate with a larger --num-nodes to create more key slots.",
-            validator_key_path.display(),
             p2p_key_path.display(),
             assets.display(),
         ));
@@ -1303,6 +1307,7 @@ fn add_next_follower(
         logs_dir_path,
         extra_args,
         docker,
+        true,
     );
 
     Ok((child, url))
