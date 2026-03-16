@@ -280,6 +280,7 @@ fn start_new_validator(
     logs_dir_path: &Path,
     extra_args: Option<&[String]>,
     docker: bool,
+    is_follower: bool,
 ) -> (Child, String) {
     let db_path = data_dir_path.join(format!("d{}", index));
     fs::create_dir_all(&db_path).expect("failed to create node datadir");
@@ -377,8 +378,10 @@ fn start_new_validator(
         cmd.push("/data/reth-config.toml".to_string());
         cmd.push("--p2p-secret-key".to_string());
         cmd.push(format!("/assets/p2p-secret-key{}.txt", index));
-        cmd.push("--validator-key".to_string());
-        cmd.push(format!("/assets/validator-key{}.txt", index));
+        if !is_follower {
+            cmd.push("--validator-key".to_string());
+            cmd.push(format!("/assets/validator-key{}.txt", index));
+        }
         if num_nodes != 1 && !trusted_peers.is_empty() {
             cmd.push("--trusted-peers".to_string());
             cmd.push(trusted_peers.to_string());
@@ -436,12 +439,14 @@ fn start_new_validator(
                 .to_str()
                 .expect("failed to convert p2p key path to string")
         ));
-        cmd.push(format!(
-            "--validator-key {}",
-            validator_key
-                .to_str()
-                .expect("failed to convert validator key path to string")
-        ));
+        if !is_follower {
+            cmd.push(format!(
+                "--validator-key {}",
+                validator_key
+                    .to_str()
+                    .expect("failed to convert validator key path to string")
+            ));
+        }
         if num_nodes != 1 && !trusted_peers.is_empty() {
             cmd.push(format!("--trusted-peers {trusted_peers}"));
         }
@@ -570,6 +575,7 @@ pub async fn testnet(
     run_megatx: bool,
     exit_after_block: Option<u64>,
     add_at_blocks: Option<&str>,
+    add_followers_at: Option<&str>,
     initial_nodes: Option<usize>,
     docker: bool,
     kube: bool,
@@ -722,6 +728,7 @@ pub async fn testnet(
                 &logs_dir_path,
                 extra_args,
                 docker,
+                false,
             );
             nodes.push(node);
             urls.push(url);
@@ -922,6 +929,31 @@ pub async fn testnet(
         );
     }
 
+    // Parse add_followers_at if provided
+    let add_followers_at_list: Vec<u64> = if let Some(blocks_str) = add_followers_at {
+        blocks_str
+            .split(',')
+            .filter_map(|s| s.trim().parse::<u64>().ok())
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    // Track which blocks have already caused a follower to be spawned
+    let mut followers_added_at_blocks: std::collections::HashSet<u64> =
+        std::collections::HashSet::new();
+
+    // Running count of follower nodes launched so far (used to pick the node index).
+    // Follower node indices start at num_nodes (after all initial validator slots).
+    let mut current_follower_count: usize = 0;
+
+    if !add_followers_at_list.is_empty() {
+        eprintln!(
+            "Will add follower nodes at blocks: {:?} (starting from node index {})",
+            add_followers_at_list, num_nodes
+        );
+    }
+
     loop {
         sleep(Duration::from_millis(1000)).await;
         monitor_tick += 1;
@@ -1021,6 +1053,61 @@ pub async fn testnet(
                         Err(e) => {
                             eprintln!(
                                 "❌ Failed to add validator at block {}: {:?}",
+                                target_block, e
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        // Check if we should add a follower node at this block height
+        if !add_followers_at_list.is_empty() {
+            let max_height = numeric_heights
+                .iter()
+                .filter_map(|h| *h)
+                .max()
+                .unwrap_or_default();
+
+            for &target_block in &add_followers_at_list {
+                if max_height >= target_block && !followers_added_at_blocks.contains(&target_block)
+                {
+                    followers_added_at_blocks.insert(target_block);
+                    let follower_index = num_nodes + current_follower_count as u32;
+                    eprintln!(
+                        "👀 Block {} reached, adding follower node at index {}...",
+                        target_block, follower_index
+                    );
+
+                    // Short pause so the block is fully propagated before the new node connects
+                    sleep(Duration::from_millis(500)).await;
+
+                    match add_next_follower(
+                        follower_index,
+                        base_http_port,
+                        &assets,
+                        &trusted_peers,
+                        rbft_node_exe.as_path(),
+                        &data_dir_path,
+                        &logs_dir_path,
+                        extra_args,
+                        docker,
+                    ) {
+                        Ok((child, url)) => {
+                            current_follower_count += 1;
+                            let provider = ProviderBuilder::new()
+                                .wallet(signer.clone())
+                                .connect_http(url.parse().expect("follower node URL is not valid"));
+                            nodes.push(child);
+                            providers.push(provider);
+                            eprintln!(
+                                "✅ Follower node {} started at block {} (total followers: {})",
+                                follower_index, target_block, current_follower_count
+                            );
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "❌ Failed to start follower node at block {}: {:?}",
                                 target_block, e
                             );
                         }
@@ -1168,6 +1255,62 @@ async fn add_next_validator(
     .await?;
 
     Ok((validator_address.to_string(), enode.to_string()))
+}
+
+/// Spawn a follower node (non-validator) using key assets at `follower_node_index`.
+///
+/// The node is started with the key files from `assets` at the given index (p2p + validator
+/// key) and connects to the existing validators via `trusted_peers`. It is **not** registered
+/// in the on-chain `QBFTValidatorSet` contract, so the QBFT state machine treats it as a
+/// follower: it only runs `upon_new_block` and never participates in proposing or voting.
+///
+/// Key files required:
+///   `<assets>/validator-key<follower_node_index>.txt`
+///   `<assets>/p2p-secret-key<follower_node_index>.txt`
+///
+/// These are produced by `rbft-utils node-gen` / `make genesis`. Ensure nodes.csv was
+/// generated with enough entries to cover this index.
+///
+/// Returns `(Child process, RPC URL)` on success.
+#[allow(clippy::too_many_arguments)]
+fn add_next_follower(
+    follower_node_index: u32,
+    base_http_port: u16,
+    assets: &Path,
+    trusted_peers: &str,
+    current_exe: &Path,
+    data_dir_path: &Path,
+    logs_dir_path: &Path,
+    extra_args: Option<&[String]>,
+    docker: bool,
+) -> eyre::Result<(Child, String)> {
+    let p2p_key_path = assets.join(format!("p2p-secret-key{follower_node_index}.txt"));
+    if !p2p_key_path.exists() {
+        return Err(eyre::eyre!(
+            "Missing p2p key file for follower node index {follower_node_index}: expected {} in \
+             {}. Re-generate with a larger --num-nodes to create more key slots.",
+            p2p_key_path.display(),
+            assets.display(),
+        ));
+    }
+
+    // `start_new_validator` is purely about launching a node process; the `num_nodes`
+    // argument is only used for a port-overflow warning, so pass index+1 to suppress it.
+    let (child, url) = start_new_validator(
+        follower_node_index,
+        follower_node_index + 1,
+        base_http_port,
+        assets,
+        trusted_peers,
+        current_exe,
+        data_dir_path,
+        logs_dir_path,
+        extra_args,
+        docker,
+        true,
+    );
+
+    Ok((child, url))
 }
 
 fn is_exit_condition_met(

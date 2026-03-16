@@ -122,7 +122,7 @@ impl NodeSwarm {
 
                 let blockchain = Blockchain::new(VecDeque::from([genesis_block]));
 
-                NodeState::new(blockchain, configuration, id, private_keys[i], 0)
+                NodeState::new(blockchain, configuration, id, Some(private_keys[i]), 0)
             })
             .collect();
         Self {
@@ -1912,7 +1912,7 @@ fn test_message_author_validation() {
         updated_blockchain,
         updated_configuration,
         updated_validators[0],
-        B256::from([0x01; 32]),
+        Some(B256::from([0x01; 32])),
         0,
     );
 

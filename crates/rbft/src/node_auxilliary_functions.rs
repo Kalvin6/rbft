@@ -44,7 +44,12 @@ pub fn sign_proposal(msg: &UnsignedProposal, node_state: &NodeState) -> SignedPr
     msg.encode(&mut encoded);
 
     // Create signature using the node's private key
-    let signature = Signature::sign_message(&encoded, &node_state.private_key());
+    let signature = Signature::sign_message(
+        &encoded,
+        &node_state
+            .private_key()
+            .expect("validator node must have a private key to sign"),
+    );
 
     SignedProposal {
         unsigned_payload: msg.clone(),
@@ -66,7 +71,12 @@ pub fn sign_prepare(msg: &UnsignedPrepare, node_state: &NodeState) -> SignedPrep
     msg.encode(&mut encoded);
 
     // Create signature using the node's private key
-    let signature = Signature::sign_message(&encoded, &node_state.private_key());
+    let signature = Signature::sign_message(
+        &encoded,
+        &node_state
+            .private_key()
+            .expect("validator node must have a private key to sign"),
+    );
 
     SignedPrepare {
         unsigned_payload: msg.clone(),
@@ -88,7 +98,12 @@ pub fn sign_commit(msg: &UnsignedCommit, node_state: &NodeState) -> SignedCommit
     msg.encode(&mut encoded);
 
     // Create signature using the node's private key
-    let signature = Signature::sign_message(&encoded, &node_state.private_key());
+    let signature = Signature::sign_message(
+        &encoded,
+        &node_state
+            .private_key()
+            .expect("validator node must have a private key to sign"),
+    );
 
     SignedCommit {
         unsigned_payload: msg.clone(),
@@ -110,7 +125,12 @@ pub fn sign_round_change(msg: &UnsignedRoundChange, node_state: &NodeState) -> S
     msg.encode(&mut encoded);
 
     // Create signature using the node's private key
-    let signature = Signature::sign_message(&encoded, &node_state.private_key());
+    let signature = Signature::sign_message(
+        &encoded,
+        &node_state
+            .private_key()
+            .expect("validator node must have a private key to sign"),
+    );
 
     SignedRoundChange {
         unsigned_payload: msg.clone(),
@@ -136,7 +156,12 @@ pub fn sign_new_block(block: &Block, node_state: &NodeState) -> SignedNewBlock {
     let mut encoded = Vec::new();
     unsigned.encode(&mut encoded);
 
-    let signature = Signature::sign_message(&encoded, &node_state.private_key());
+    let signature = Signature::sign_message(
+        &encoded,
+        &node_state
+            .private_key()
+            .expect("validator node must have a private key to sign"),
+    );
 
     SignedNewBlock {
         unsigned_payload: unsigned,
@@ -153,7 +178,12 @@ pub fn recover_signed_new_block_author(signature: &Signature) -> Address {
 /// Signs a hash and returns a signature.
 pub fn sign_hash(hash: &Hash, node_state: &NodeState) -> Signature {
     // Create signature using the node's private key
-    Signature::sign_message(hash.as_slice(), &node_state.private_key())
+    Signature::sign_message(
+        hash.as_slice(),
+        &node_state
+            .private_key()
+            .expect("validator node must have a private key to sign"),
+    )
 }
 
 /// Recovers the author of a signed hash.

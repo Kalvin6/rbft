@@ -6,12 +6,49 @@ use alloy_signer_local::PrivateKeySigner;
 use eyre::{eyre, Result};
 use reth_network_peers::NodeRecord;
 use serde_json::json;
+use std::net::SocketAddr;
 
 /// Default validator contract address (proxy contract)
 const DEFAULT_VALIDATOR_CONTRACT: Address = Address::new([
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x10, 0x01,
 ]);
+
+/// Generate a fresh validator key-pair + P2P secret key and print as JSON.
+///
+/// Output fields:
+///   validator_address      – Ethereum address derived from the validator key
+///   validator_private_key  – hex-encoded validator private key (for --validator-key)
+///   p2p_secret_key         – hex-encoded P2P secret key (for --p2p-secret-key)
+///   enode                  – enode URL derived from the P2P key
+pub fn keygen_validator(ip: &str, port: u16) -> Result<()> {
+    // Generate validator key
+    let validator_signer = PrivateKeySigner::random();
+    let validator_address = validator_signer.address();
+    let validator_private_key = format!(
+        "0x{}",
+        alloy_primitives::hex::encode(validator_signer.to_bytes())
+    );
+
+    // Generate P2P secret key
+    let p2p_secret_key = reth_ethereum::network::config::rng_secret_key();
+    let p2p_key_hex = alloy_primitives::hex::encode(p2p_secret_key.as_ref());
+
+    // Derive enode from P2P key
+    let socket_addr: SocketAddr = format!("{ip}:{port}")
+        .parse()
+        .map_err(|e| eyre!("Invalid IP/port '{}:{}': {}", ip, port, e))?;
+    let enode = NodeRecord::from_secret_key(socket_addr, &p2p_secret_key);
+
+    let output = json!({
+        "validator_address": format!("{:?}", validator_address),
+        "validator_private_key": validator_private_key,
+        "p2p_secret_key": p2p_key_hex,
+        "enode": enode.to_string(),
+    });
+    println!("{}", serde_json::to_string_pretty(&output)?);
+    Ok(())
+}
 
 /// Add a validator to the QBFTValidatorSet contract
 pub async fn add_validator(

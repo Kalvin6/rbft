@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Shared constants for RBFT tooling.
 
-/// Well-known admin private key used for local testnets and load generation.
+/// Fallback admin private key used when `RBFT_ADMIN_KEY` is not set.
 ///
-/// This key is baked into genesis assets so tooling can assume a funded account.
+/// Used by `genesis`, `validator add`, and other commands that require an admin key.
+/// Override with the `RBFT_ADMIN_KEY` environment variable to use a different key.
+/// **This key is only the actual genesis admin when the testnet was generated without
+/// `RBFT_ADMIN_KEY` set.**
 pub const DEFAULT_ADMIN_KEY: &str =
     "0x0000000000000000000000000000000000000000000000000000000000000001";
 

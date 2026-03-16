@@ -25,27 +25,28 @@ use metrics::QbftMetrics;
 // === Node args ===
 /// RBFT node configuration
 ///
-/// Environment Variables:
-///   RBFT_BLOCK_INTERVAL           Override block interval (seconds, float)
-///   RBFT_GAS_LIMIT                Override gas limit (unsigned integer)
-///   RBFT_DEBUG_CATCHUP_BLOCK      Only enable chain catchup after this
-///                                 block height (unsigned integer)
-///   RBFT_RESEND_AFTER             Resend cached messages after this many
-///                                 seconds without block commits (default: 0=disabled)
-///   RBFT_FULL_LOGS                Emit state logs on every advance (default: false)
-///   RBFT_TRUSTED_PEERS_REFRESH_SECS  Peer refresh interval (default: 10)
+/// Environment Variables (all correspond to a `--flag` CLI arg of the same name):
+///   RBFT_VALIDATOR_KEY                Path to the validator private key file
+///   RBFT_LOGS_DIR                     Directory for log files
+///   RBFT_DB_DIR                       Directory for database files
+///   RBFT_TRUSTED_PEERS_REFRESH_SECS   Peer refresh interval in seconds (default: 10)
+///   RBFT_FULL_LOGS                    Emit state logs on every advance (default: false)
+///   RBFT_RESEND_AFTER                 Resend cached messages after N seconds without commits
+///   RBFT_DISABLE_EXPRESS              Disable express transaction delivery
+///   RBFT_DEBUG_CATCHUP_BLOCK          Only enable QBFT advance after this block height
+///                                     (node 0 only; useful for debugging catch-up)
 #[derive(Debug, Parser, Clone)]
 pub struct RbftNodeArgs {
-    /// Path to the validator private key file
-    #[arg(long)]
+    /// Path to the validator private key file. If not provided, the node will be a follower node.
+    #[arg(long, env = "RBFT_VALIDATOR_KEY")]
     pub validator_key: Option<String>,
 
     /// Directory for log files. Defaults to ~/.rbft/testnet/logs
-    #[arg(long)]
+    #[arg(long, env = "RBFT_LOGS_DIR")]
     pub logs_dir: Option<String>,
 
     /// Directory for database files. Defaults to ~/.rbft/testnet/db
-    #[arg(long)]
+    #[arg(long, env = "RBFT_DB_DIR")]
     pub db_dir: Option<String>,
 
     /// How often (in seconds) to refresh trusted peer DNS entries and reconnect on changes.
@@ -75,6 +76,12 @@ pub struct RbftNodeArgs {
     /// transactions to the next block proposer).
     #[arg(long, env = "RBFT_DISABLE_EXPRESS")]
     pub disable_express: bool,
+
+    /// Only enable QBFT advance on node 0 after the chain reaches this block height
+    /// (or another node has already seen a NewBlock at this height). Useful for
+    /// debugging catch-up behaviour without advancing immediately.
+    #[arg(long, value_name = "BLOCK", env = "RBFT_DEBUG_CATCHUP_BLOCK")]
+    pub debug_catchup_block: Option<u64>,
 }
 
 fn spawn_trusted_peer_refresh(

@@ -52,6 +52,119 @@ This will:
 
 The nodes will log to `~/.rbft/testnet/logs/` and store data in `~/.rbft/testnet/db/`.
 
+### Running a Follower Node
+
+A follower node connects to an existing validator network, receives blocks, and keeps a
+full copy of the chain. It does not participate in consensus (no `--validator-key`), so it
+can be added to or removed from the network at any time without affecting liveness.
+
+Before running a follower you need:
+- A running RBFT testnet (e.g. started with `make testnet_start`)
+- The `genesis.json` and `nodes.csv` from the testnet assets directory
+  (default: `~/.rbft/testnet/assets/`)
+
+Extract the validator enode URLs from `nodes.csv` (column 5):
+
+```bash
+ENODES=$(awk -F',' 'NR>1{printf "%s%s",sep,$5; sep=","}' ~/.rbft/testnet/assets/nodes.csv)
+```
+
+Then start the follower:
+
+```bash
+target/release/rbft-node node \
+  --chain ~/.rbft/testnet/assets/genesis.json \
+  --datadir /tmp/rbft-follower \
+  --port 12345 \
+  --authrpc.port 8651 \
+  --http --http.port 8600 \
+  --disable-discovery \
+  --trusted-peers "$ENODES"
+```
+
+Key flags:
+- `--chain` — path to the shared `genesis.json` (must match the running network)
+- `--datadir` — a fresh directory for the follower's database; must not be shared with
+  a validator
+- `--port` — P2P listen port; pick one that does not conflict with the validator nodes
+  (default validator ports start at 30303)
+- `--authrpc.port` — engine API port; also must not conflict (validator default: 8551+)
+- `--disable-discovery` — prevents unwanted discv4/discv5 discovery; peers are supplied
+  explicitly via `--trusted-peers`
+- `--trusted-peers` — comma-separated enode URLs of the validators to connect to
+- `--validator-key` is intentionally **omitted** — its absence is what makes this a
+  follower
+
+### Adding a Validator Node
+
+To add a new validator to a running testnet you need a validator key (for signing QBFT
+messages), a P2P secret key (for RLPx networking), and the enode URL derived from it.
+
+**1. Generate keys**
+
+```bash
+target/release/rbft-utils validator keygen --ip <YOUR_IP> --port 30305
+```
+
+This prints JSON with all four values:
+
+```json
+{
+  "validator_address":     "0xABCD...",
+  "validator_private_key": "0x1234...",
+  "p2p_secret_key":        "abcd...",
+  "enode":                 "enode://<pubkey>@<YOUR_IP>:30305"
+}
+```
+
+Save the keys and capture the enode:
+
+```bash
+echo "0x1234..." > validator-key-new.txt
+echo "abcd..."   > p2p-secret-key-new.txt
+ENODE="enode://<pubkey>@<YOUR_IP>:30305"
+```
+
+**2. Start the node**
+
+```bash
+target/release/rbft-node node \
+  --chain ~/.rbft/testnet/assets/genesis.json \
+  --datadir /tmp/rbft-new-validator \
+  --port 30305 \
+  --authrpc.port 8652 \
+  --http --http.port 8601 \
+  --disable-discovery \
+  --p2p-secret-key p2p-secret-key-new.txt \
+  --validator-key validator-key-new.txt \
+  --trusted-peers "$ENODES"   # enodes of existing validators
+```
+
+**3. Register the validator in the contract**
+
+The admin key is taken from the `RBFT_ADMIN_KEY` environment variable, which must match
+the key used when the genesis was generated. For a fresh local testnet started without
+setting `RBFT_ADMIN_KEY`, the default is `0x000...0001`:
+
+```bash
+target/release/rbft-utils validator add \
+  --validator-address 0xABCD... \
+  --enode "$ENODE" \
+  --rpc-url http://localhost:8545
+```
+
+If `RBFT_ADMIN_KEY` is not set, pass it explicitly:
+
+```bash
+target/release/rbft-utils validator add \
+  --admin-key <ADMIN_PRIVATE_KEY> \
+  --validator-address 0xABCD... \
+  --enode "$ENODE" \
+  --rpc-url http://localhost:8545
+```
+
+The new validator becomes active at the next epoch boundary.
+
 ### Installing Cast (Foundry)
 
 Cast is a useful tool for interacting with the blockchain:

@@ -22,7 +22,6 @@ pub use rbft_utils::types::RbftConfig;
 
 use std::{
     collections::{HashMap, VecDeque},
-    env,
     time::{Duration, Instant, UNIX_EPOCH},
 };
 
@@ -179,7 +178,7 @@ mod reload_tests {
             nodes: vec![qbft_beneficiary],
             ..Default::default()
         };
-        let private_key = B256::from([1u8; 32]);
+        let private_key = Some(B256::from([1u8; 32]));
         let node_state =
             NodeState::new(blockchain, configuration, qbft_beneficiary, private_key, 0);
 
@@ -1512,16 +1511,13 @@ where
             }
         }
 
-        let enabled = match env::var("RBFT_DEBUG_CATCHUP_BLOCK") {
-            Ok(value) => {
-                let threshold = value.parse::<u64>().map_err(|e| {
-                    eyre!("RBFT_DEBUG_CATCHUP_BLOCK must be a valid unsigned integer: {e}")
-                })?;
+        let enabled = match self.args.debug_catchup_block {
+            Some(threshold) => {
                 whoami != 0
                     || self.node_state.blockchain().height() >= threshold
                     || highest_newblock_message >= threshold
             }
-            Err(_) => true,
+            None => true,
         };
 
         if !enabled {
@@ -2617,11 +2613,19 @@ async fn attempt_peer_reconnection(
 
 fn get_private_key_and_id(
     args: &RbftNodeArgs,
-) -> eyre::Result<(alloy_primitives::B256, alloy_primitives::Address)> {
-    let key = args
-        .validator_key
-        .as_ref()
-        .ok_or_else(|| eyre!("Validator key is required for QBFT nodes"))?;
+) -> eyre::Result<(Option<alloy_primitives::B256>, alloy_primitives::Address)> {
+    // If no validator key file is provided, the node runs as a follower.
+    // Its address will not appear in the on-chain validator set, so the QBFT
+    // state machine will treat it as a follower (non-validator): it will only run
+    // `upon_new_block` and never propose, prepare, commit, or trigger round changes.
+    let Some(key) = args.validator_key.as_ref() else {
+        info!(
+            target: "rbft",
+            "No --validator-key provided; running as follower node"
+        );
+        return Ok((None, Address::ZERO));
+    };
+
     let key_data = std::fs::read_to_string(key)
         .map_err(|e| eyre!("Failed to read validator key file {key:?}: {e}"))?;
     let key_data = key_data.trim();
@@ -2644,7 +2648,7 @@ fn get_private_key_and_id(
     let signer = PrivateKeySigner::from_bytes(&private_key)
         .map_err(|e| eyre!("Failed to create signer from private key: {e}"))?;
     let id = signer.address();
-    Ok((private_key, id))
+    Ok((Some(private_key), id))
 }
 
 fn now() -> u64 {
